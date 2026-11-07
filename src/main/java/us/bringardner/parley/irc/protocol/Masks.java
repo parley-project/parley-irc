@@ -1,0 +1,109 @@
+/**
+ * <PRE>
+ *
+ * Copyright Tony Bringardner 2026 <A href="http://bringardner.com/tony">Tony Bringardner</A>
+ *
+ *
+ *   Licensed under the Apache License, Version 2.0 (the "License");
+ *   you may not use this file except in compliance with the License.
+ *   You may obtain a copy of the License at
+ *
+ *       <A href="http://www.apache.org/licenses/LICENSE-2.0">http://www.apache.org/licenses/LICENSE-2.0</A>
+ *
+ *   Unless required by applicable law or agreed to in writing, software
+ *   distributed under the License is distributed on an "AS IS" BASIS,
+ *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *   See the License for the specific language governing permissions and
+ *   limitations under the License.
+ *  </PRE>
+ *
+ *
+ *	@author Tony Bringardner
+ *
+ *
+ */
+package us.bringardner.parley.irc.protocol;
+
+/**
+ * Wildcard masks (RFC 2812 section 2.5): '?' matches exactly one character, '*' any number of
+ * characters (none included), and '\' before '*', '?' or '\' makes it an ordinary character.
+ * Matching ignores case by the given {@link CaseMapping}.
+ *
+ * @author Tony Bringardner
+ */
+public final class Masks {
+
+	private Masks() {
+	}
+
+	/** @return true if the text matches the mask, comparing by RFC 1459 case mapping */
+	public static boolean matches(String mask, String text) {
+		return matches(mask, text, CaseMapping.RFC1459);
+	}
+
+	/**
+	 * @param mask the mask, e.g. {@code *!*@*.example.net}
+	 * @param text what to test, e.g. {@code tony!tb@host.example.net}
+	 * @param mapping how case is compared
+	 * @return true if the whole text matches the mask
+	 */
+	public static boolean matches(String mask, String text, CaseMapping mapping) {
+		int m = 0;
+		int t = 0;
+		// Where to go back to when what follows the last '*' fails: the mask after it, and the text
+		int starMask = -1;
+		int starText = -1;
+		while( t < text.length() ) {
+			if( m < mask.length() ) {
+				char c = mask.charAt(m);
+				if( c == '*' ) {
+					starMask = ++m;
+					starText = t;
+					continue;
+				}
+				if( c == '?' ) {
+					m++;
+					t++;
+					continue;
+				}
+				int len = 1;
+				if( c == '\\' && m+1 < mask.length() && isSpecial(mask.charAt(m+1)) ) {
+					c = mask.charAt(m+1);
+					len = 2;
+				}
+				if( mapping.toLowerCase(c) == mapping.toLowerCase(text.charAt(t)) ) {
+					m += len;
+					t++;
+					continue;
+				}
+			}
+			if( starMask < 0 ) {
+				return false;
+			}
+			// Let the last '*' take one more character
+			m = starMask;
+			t = ++starText;
+		}
+		while( m < mask.length() && mask.charAt(m) == '*' ) {
+			m++;
+		}
+		return m == mask.length();
+	}
+
+	private static boolean isSpecial(char c) {
+		return c == '*' || c == '?' || c == '\\';
+	}
+
+	/** @return true if the mask has an unescaped '*' or '?' */
+	public static boolean hasWildcards(String mask) {
+		for (int i = 0; i < mask.length(); i++) {
+			char c = mask.charAt(i);
+			if( c == '\\' && i+1 < mask.length() && isSpecial(mask.charAt(i+1)) ) {
+				i++;
+			} else if( c == '*' || c == '?' ) {
+				return true;
+			}
+		}
+		return false;
+	}
+}
