@@ -33,6 +33,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
+import us.bringardner.parley.io.IoUtils;
+import us.bringardner.parley.net.nio.LineFrameDecoder;
+import us.bringardner.parley.net.nio.LineFrameDecoder.LineEnd;
+
 /**
  * One IRC message: an optional prefix, a command and up to 15 parameters (RFC 2812 section 2.3.1).
  * <pre>
@@ -48,6 +52,10 @@ import java.util.Objects;
  * Parsing is lenient where RFC 1459 was (one or more spaces between the parts) and strict where
  * both RFCs agree (no NUL, CR or LF, a command of letters or of three digits). Commands are kept
  * in upper case.
+ * <p>
+ * The RFCs name no character set (RFC 2812 section 2.2: a message is octets), so a message is
+ * read as UTF-8, or as ISO-8859-1 when it isn't valid UTF-8, and written as UTF-8 (design
+ * decision D7). A connection's input is split into messages by {@link #newDecoder()}.
  *
  * @author Tony Bringardner
  */
@@ -221,10 +229,22 @@ public final class IrcMessage {
 	}
 
 	/**
-	 * Parse a frame from the connection (see {@link IrcText#decode(ByteBuffer)} for the character set).
+	 * Parse a frame from the connection: UTF-8, or ISO-8859-1 when it isn't valid UTF-8.
 	 */
 	public static IrcMessage parse(ByteBuffer frame) {
-		return parse(IrcText.decode(frame));
+		return parse(IoUtils.decodeUtf8OrLatin1(frame));
+	}
+
+	/**
+	 * How a connection's input is split into messages (RFC 2812 sections 2.3 and 2.3.1): CR and LF
+	 * both end a message, so it may end in CR LF, CR or LF; empty messages are skipped; a message
+	 * longer than 512 bytes with its CR LF is cut to that (never inside a UTF-8 character) and the
+	 * rest of it dropped, as IRC servers commonly do.
+	 *
+	 * @return a new decoder, one per connection
+	 */
+	public static LineFrameDecoder newDecoder() {
+		return new LineFrameDecoder(MAX_LINE_BYTES, LineEnd.CR_OR_LF, true, true);
 	}
 
 	private static int skipSpaces(String line, int pos) {
@@ -335,11 +355,24 @@ public final class IrcMessage {
 			throw new IrcFormatException("the message is longer than "+MAX_BYTES+" bytes even without its last parameter");
 		}
 		byte[] last = getLastParam().getBytes(StandardCharsets.UTF_8);
-		int cut = IrcText.utf8Boundary(last, room);
+		int cut = utf8Boundary(last, room);
 		byte[] ret = new byte[without.length+cut];
 		System.arraycopy(without, 0, ret, 0, without.length);
 		System.arraycopy(last, 0, ret, without.length, cut);
 		return ret;
+	}
+
+	// A length of at most max that doesn't end inside a UTF-8 character
+	private static int utf8Boundary(byte[] utf8, int max) {
+		if( utf8.length <= max ) {
+			return utf8.length;
+		}
+		int cut = max;
+		// Back up over continuation bytes (10xxxxxx) to the start of the character at max
+		while( cut > 0 && max-cut < 3 && (utf8[cut] & 0xC0) == 0x80 ) {
+			cut--;
+		}
+		return cut;
 	}
 
 	@Override

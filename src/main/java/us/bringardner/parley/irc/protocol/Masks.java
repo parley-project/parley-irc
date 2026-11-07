@@ -24,10 +24,13 @@
  */
 package us.bringardner.parley.irc.protocol;
 
+import us.bringardner.parley.core.util.Wildcards;
+
 /**
- * Wildcard masks (RFC 2812 section 2.5): '?' matches exactly one character, '*' any number of
+ * IRC's wildcard masks (RFC 2812 section 2.5): '?' matches exactly one character, '*' any number of
  * characters (none included), and '\' before '*', '?' or '\' makes it an ordinary character.
- * Matching ignores case by the given {@link CaseMapping}.
+ * Matching ignores case by the given {@link CaseMapping}. It is parley-core's {@link Wildcards}
+ * with IRC's escapes and case mapping.
  *
  * @author Tony Bringardner
  */
@@ -48,62 +51,11 @@ public final class Masks {
 	 * @return true if the whole text matches the mask
 	 */
 	public static boolean matches(String mask, String text, CaseMapping mapping) {
-		int m = 0;
-		int t = 0;
-		// Where to go back to when what follows the last '*' fails: the mask after it, and the text
-		int starMask = -1;
-		int starText = -1;
-		while( t < text.length() ) {
-			if( m < mask.length() ) {
-				char c = mask.charAt(m);
-				if( c == '*' ) {
-					starMask = ++m;
-					starText = t;
-					continue;
-				}
-				if( c == '?' ) {
-					m++;
-					t++;
-					continue;
-				}
-				int len = 1;
-				if( c == '\\' && m+1 < mask.length() && isSpecial(mask.charAt(m+1)) ) {
-					c = mask.charAt(m+1);
-					len = 2;
-				}
-				if( mapping.toLowerCase(c) == mapping.toLowerCase(text.charAt(t)) ) {
-					m += len;
-					t++;
-					continue;
-				}
-			}
-			if( starMask < 0 ) {
-				return false;
-			}
-			// Let the last '*' take one more character
-			m = starMask;
-			t = ++starText;
-		}
-		while( m < mask.length() && mask.charAt(m) == '*' ) {
-			m++;
-		}
-		return m == mask.length();
-	}
-
-	private static boolean isSpecial(char c) {
-		return c == '*' || c == '?' || c == '\\';
+		return Wildcards.matches(mask, text, true, mapping);
 	}
 
 	/** @return true if the mask has an unescaped '*' or '?' */
 	public static boolean hasWildcards(String mask) {
-		for (int i = 0; i < mask.length(); i++) {
-			char c = mask.charAt(i);
-			if( c == '\\' && i+1 < mask.length() && isSpecial(mask.charAt(i+1)) ) {
-				i++;
-			} else if( c == '*' || c == '?' ) {
-				return true;
-			}
-		}
-		return false;
+		return Wildcards.hasWildcards(mask, true);
 	}
 }

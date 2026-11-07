@@ -24,16 +24,19 @@
  */
 package us.bringardner.parley.irc.protocol;
 
+import us.bringardner.parley.core.util.Wildcards;
+
 /**
  * How nicknames and channel names are compared without regard to case.
  * <p>
  * IRC's Scandinavian origin makes {}|^ the lower case of []\~ (RFC 2812 section 2.2, RFC 1459
  * section 2.2), which {@link #RFC1459} follows (design decision D7). {@link #ASCII} folds only
- * A-Z. Other characters are compared as they are.
+ * A-Z. Other characters are compared as they are. A mapping is also a {@link Wildcards.CaseFolding},
+ * so masks compare the same way ({@link Masks}).
  *
  * @author Tony Bringardner
  */
-public enum CaseMapping {
+public enum CaseMapping implements Wildcards.CaseFolding {
 
 	/** A-Z and []\~ fold to a-z and {}|^ (the RFCs' rule, and the default) */
 	RFC1459("rfc1459"),
@@ -66,6 +69,12 @@ public enum CaseMapping {
 			}
 		}
 		return c;
+	}
+
+	/** @return the lower case of c (Wildcards.CaseFolding) */
+	@Override
+	public char fold(char c) {
+		return toLowerCase(c);
 	}
 
 	/** @return the lower case of the text; use it as the key when names are kept in a map */

@@ -26,8 +26,8 @@
  * What the IRC server, its server links and the client share: messages ({@link
  * us.bringardner.parley.irc.protocol.IrcMessage}, {@link us.bringardner.parley.irc.protocol.Prefix}),
  * numeric replies ({@link us.bringardner.parley.irc.protocol.Numeric}), reading a connection's
- * input as messages ({@link us.bringardner.parley.irc.protocol.IrcLineDecoder}, {@link
- * us.bringardner.parley.irc.protocol.IrcText}), and the RFCs' rules for names: case ({@link
+ * input as messages ({@link us.bringardner.parley.irc.protocol.IrcMessage#newDecoder()}), and the
+ * RFCs' rules for names: case ({@link
  * us.bringardner.parley.irc.protocol.CaseMapping}), wildcard masks ({@link
  * us.bringardner.parley.irc.protocol.Masks}) and syntax ({@link
  * us.bringardner.parley.irc.protocol.IrcSyntax}).
