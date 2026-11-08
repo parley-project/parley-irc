@@ -32,7 +32,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Properties;
@@ -40,6 +39,8 @@ import java.util.Properties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import us.bringardner.parley.files.FileSource;
+import us.bringardner.parley.files.FileSourceFactory;
 import us.bringardner.parley.irc.protocol.IrcMessage;
 
 /** Registration (RFC 2812 section 3.1) and the welcome replies */
@@ -256,9 +257,12 @@ class RegistrationTest extends ServerTestBase {
 	@Test
 	void nodeFileMotdAndSharing(@TempDir Path dir) throws IOException {
 		String longLine = "0123456789".repeat(9);
-		Files.write(dir.resolve("motd.txt"), ("Welcome to Parley\n"+longLine+"\n").getBytes(StandardCharsets.UTF_8));
-		Files.write(dir.resolve("node.properties"), ("name=irc.example.net\nmotd=motd.txt\nnetwork=ParleyNet\n").getBytes(StandardCharsets.UTF_8));
-		String location = dir.resolve("node.properties").toString();
+		// JUnit gives the folder as a Path; everything in it goes through FileSource
+		FileSource folder = FileSourceFactory.getDefaultFactory().createFileSource(dir.toString());
+		write(folder.getChild("motd.txt"), "Welcome to Parley\n"+longLine+"\n");
+		FileSource nodeFile = folder.getChild("node.properties");
+		write(nodeFile, "name=irc.example.net\nmotd=motd.txt\nnetwork=ParleyNet\n");
+		String location = nodeFile.getAbsolutePath();
 		Properties listener = new Properties();
 		listener.setProperty("parley.irc.node", location);
 		IrcServer a = start(null, listener);
@@ -281,5 +285,11 @@ class RegistrationTest extends ServerTestBase {
 		TestClient other = connect(b);
 		other.send("NICK Tony");
 		other.readCommand("433");
+	}
+
+	private static void write(FileSource file, String text) throws IOException {
+		try (java.io.OutputStream out = file.getOutputStream()) {
+			out.write(text.getBytes(StandardCharsets.UTF_8));
+		}
 	}
 }
