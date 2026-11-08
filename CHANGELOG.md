@@ -22,3 +22,8 @@
   005 as `RPL_ISUPPORT` or kept for `RPL_BOUNCE` (`numeric005`), LUSERS and MOTD; user modes
   (`aiwroOs`); 421 for unknown commands and CAP; flood control (RFC 2812 section 5.8);
   registration and ping timeouts; a client with too much unsent output is dropped.
+- **The server, stage 1 step (b)**: channels (`IrcChannel`, `#` and `&`, modes `biklmnopstv`)
+  with JOIN, PART, MODE for channels, TOPIC, NAMES, LIST, INVITE and KICK, and PRIVMSG and NOTICE
+  to channels and users (RFC 2812 sections 3.2 and 3.3). A user's NICK and QUIT go to everyone on
+  their channels. The node's `maxChannels` setting (default 10, sent as `CHANLIMIT`); 005 also
+  sends `MODES=3`. A closed link frees its nickname at once.

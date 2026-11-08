@@ -144,7 +144,7 @@ class RegistrationTest extends ServerTestBase {
 		c.send("MOTD");
 		assertEquals("*", c.readCommand("451").getParam(0));
 		c.send("JOIN #parley");
-		assertEquals("JOIN", c.readCommand("421").getParam(1));
+		assertEquals("*", c.readCommand("451").getParam(0));
 		// decision D8
 		c.send("CAP LS 302");
 		assertEquals("CAP", c.readCommand("421").getParam(1));

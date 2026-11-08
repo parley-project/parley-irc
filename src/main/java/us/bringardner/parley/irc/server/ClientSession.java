@@ -48,7 +48,11 @@ import us.bringardner.parley.net.nio.INioHandler;
 /**
  * One client connection (decision D17): registration (PASS, NICK, USER, RFC 2812 section 3.1),
  * the welcome replies, and the commands of stage 1 step (a): QUIT, PING, PONG, MOTD, LUSERS and
- * MODE for user modes. Any other command gets 421 ERR_UNKNOWNCOMMAND (CAP too, decision D8).
+ * MODE for user modes. Step (b)'s channels and messages are {@link ChannelCommands}. Any other
+ * command gets 421 ERR_UNKNOWNCOMMAND (CAP too, decision D8).
+ * <p>
+ * A user's NICK, and their QUIT (or any other end of the connection), go to everyone on their
+ * channels.
  * <p>
  * Timers use the connection's deadline: the registration timeout, the answer to the server's
  * PING, and flood control (RFC 2812 section 5.8: each message moves the client's timer
@@ -65,7 +69,8 @@ public class ClientSession implements INioHandler {
 	/** Commands a client may send before it registers (RFC 2812 section 3.1) */
 	private static final List<String> BEFORE_REGISTRATION = java.util.Arrays.asList("PASS", "NICK", "USER", "QUIT", "PING", "PONG");
 	/** The commands of later steps: before registering they get 451, after it 421 until they are built */
-	private static final List<String> KNOWN = java.util.Arrays.asList("MOTD", "LUSERS", "MODE");
+	private static final List<String> KNOWN = java.util.Arrays.asList("MOTD", "LUSERS", "MODE",
+			"JOIN", "PART", "TOPIC", "NAMES", "LIST", "INVITE", "KICK", "PRIVMSG", "NOTICE");
 	private static final DateTimeFormatter CREATED = DateTimeFormatter.ofPattern("EEE MMM d yyyy 'at' HH:mm:ss 'UTC'", Locale.ROOT).withZone(ZoneOffset.UTC);
 
 	private final IrcServer server;
@@ -75,6 +80,8 @@ public class ClientSession implements INioHandler {
 	private volatile String nick;
 	private volatile IrcUser user;
 	private volatile boolean closing;
+	private volatile String quitReason;
+	private ChannelCommands channels;
 
 	// Registration
 	private String password;
@@ -102,6 +109,7 @@ public class ClientSession implements INioHandler {
 	public void onConnect(INioConnection connection) throws Exception {
 		this.connection = connection;
 		this.node = server.getNode();
+		this.channels = new ChannelCommands(this, node);
 		this.host = hostOf(connection.getRemoteAddress());
 		node.connectionOpened();
 		countedUnregistered = true;
@@ -230,6 +238,11 @@ public class ClientSession implements INioHandler {
 			countedUnregistered = false;
 			n.connectionRegisteredOrClosed();
 		}
+		IrcUser u = user;
+		if( u != null ) {
+			// QUIT went out when the link was closed; this covers a connection that just ended
+			ChannelCommands.quit(u, quitReason == null ? "Connection closed" : quitReason);
+		}
 		n.releaseNick(this, nick);
 	}
 
@@ -278,6 +291,15 @@ public class ClientSession implements INioHandler {
 			case "MOTD":   motd(msg); break;
 			case "LUSERS": lusers(msg); break;
 			case "MODE":   mode(msg); break;
+			case "JOIN":   channels.join(msg); break;
+			case "PART":   channels.part(msg); break;
+			case "TOPIC":  channels.topic(msg); break;
+			case "NAMES":  channels.names(msg); break;
+			case "LIST":   channels.list(msg); break;
+			case "INVITE": channels.invite(msg); break;
+			case "KICK":   channels.kick(msg); break;
+			case "PRIVMSG": channels.message(msg, false); break;
+			case "NOTICE": channels.message(msg, true); break;
 			default:       unknown(cmd); break;
 		}
 	}
@@ -286,7 +308,7 @@ public class ClientSession implements INioHandler {
 		numeric(Numeric.ERR_UNKNOWNCOMMAND, cmd, "Unknown command");
 	}
 
-	private boolean needParams(IrcMessage msg, int count) {
+	boolean needParams(IrcMessage msg, int count) {
 		if( msg.getParamCount() < count ) {
 			numeric(Numeric.ERR_NEEDMOREPARAMS, msg.getCommand().toUpperCase(Locale.ROOT), "Not enough parameters");
 			return false;
@@ -333,7 +355,7 @@ public class ClientSession implements INioHandler {
 		if( u != null ) {
 			Prefix from = u.getPrefix();
 			u.setNickname(n);
-			send(IrcMessage.of(from, "NICK", java.util.Collections.singletonList(n)));
+			ChannelCommands.nickChanged(u, IrcMessage.of(from, "NICK", java.util.Collections.singletonList(n)));
 		} else {
 			tryRegister();
 		}
@@ -421,9 +443,11 @@ public class ClientSession implements INioHandler {
 		List<String> all = new ArrayList<String>();
 		all.add("CASEMAPPING="+node.getCaseMapping().getName());
 		all.add("CHANTYPES=#&");
+		all.add("CHANLIMIT=#&:"+node.getMaxChannels());
 		all.add("PREFIX=(ov)@+");
 		all.add("CHANMODES=b,k,l,imnpst");
 		all.add("CHANNELLEN="+IrcSyntax.MAX_CHANNEL_LENGTH);
+		all.add("MODES="+ChannelCommands.MAX_MODE_PARAMS);
 		all.add("NICKLEN="+node.getNickLength());
 		String network = node.getNetwork();
 		if( network != null && network.indexOf(' ') < 0 ) {
@@ -511,14 +535,14 @@ public class ClientSession implements INioHandler {
 		numeric(Numeric.RPL_LUSERME, "I have "+node.getUserCount()+" clients and 0 servers");
 	}
 
-	/** RFC 2812 section 3.1.5 (user modes); channel modes come with channels (step b) */
+	/** RFC 2812 section 3.1.5 (user modes); a channel's are {@link ChannelCommands#mode(IrcMessage)} */
 	private void mode(IrcMessage msg) {
 		if( !needParams(msg, 1) ) {
 			return;
 		}
 		String target = msg.getParam(0);
 		if( IrcSyntax.looksLikeChannel(target) ) {
-			numeric(Numeric.ERR_NOSUCHCHANNEL, target, "No such channel");
+			channels.mode(msg);
 			return;
 		}
 		IrcUser u = user;
@@ -579,14 +603,14 @@ public class ClientSession implements INioHandler {
 	}
 
 	// A server parameter (MOTD, LUSERS, PING): this server's name, or a mask matching it
-	private boolean isThisServer(String name) {
+	boolean isThisServer(String name) {
 		return node.getCaseMapping().equals(name, node.getName()) || Masks.matches(name, node.getName(), node.getCaseMapping());
 	}
 
 	// ------------------------------------------------------------------ sending
 
 	/** Send a numeric reply to this client: {@code :server NNN nick params...} */
-	private void numeric(Numeric numeric, String... params) {
+	void numeric(Numeric numeric, String... params) {
 		String n = nick;
 		send(IrcMessage.numeric(node.getPrefix(), numeric, n == null ? "*" : n, params));
 	}
@@ -602,6 +626,7 @@ public class ClientSession implements INioHandler {
 		}
 		if( c.getPendingWriteBytes() > node.getMaxSendQueue() ) {
 			server.logInfo("Max SendQ exceeded, closing "+c);
+			quitReason = "Max SendQ exceeded";
 			closing = true;
 			c.close();
 			return;
@@ -620,7 +645,14 @@ public class ClientSession implements INioHandler {
 		}
 		send(IrcMessage.of(null, "ERROR", java.util.Collections.singletonList("Closing Link: "+host+" ("+reason+")")));
 		closing = true;
+		quitReason = reason;
 		held.clear();
+		IrcUser u = user;
+		if( u != null ) {
+			ChannelCommands.quit(u, reason);
+		}
+		// The nickname is free at once, not when the socket has finished closing
+		node.releaseNick(this, nick);
 		connection.closeAfterFlush();
 	}
 

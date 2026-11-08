@@ -11,13 +11,14 @@ It is being built in stages, newest RFCs first:
 3. RFC 2813 (server protocol) and RFC 2810 (architecture)
 4. RFC 1459, checked requirement by requirement; where the RFCs differ, the most recent one is followed
 
-**Status:** the shared protocol package (stage 0) and the server's registration (stage 1, step a).
-Channels and messages, queries and operator commands, the client and the TLS listener come next.
+**Status:** the shared protocol package (stage 0), the server's registration (stage 1, step a),
+and channels and messages (step b). Queries and operator commands, the client and the TLS
+listener come next.
 
 | Package | What it holds |
 |---|---|
 | `us.bringardner.parley.irc.protocol` | Messages and prefixes, numeric replies, the line decoder, case mapping, wildcard masks, name syntax |
-| `us.bringardner.parley.irc.server` | The server: the node, its listeners, client sessions and users |
+| `us.bringardner.parley.irc.server` | The server: the node, its listeners, client sessions, users and channels |
 
 ## The protocol package
 
@@ -73,6 +74,8 @@ pingTimeout=2m
 floodPenalty=2s
 floodLimit=10s
 maxSendQueue=1048576
+# the most channels a user may be on at once (sent as CHANLIMIT)
+maxChannels=10
 ```
 
 A name the node doesn't know (a misspelling such as `nickLenght`) is logged as a warning naming
@@ -101,6 +104,30 @@ takes RFC 2812's form (`USER tb 8 * :Tony B`, where 8 sets +i and 4 sets +w) or 
 MOTD (or 422). It answers PING, LUSERS, MOTD and MODE for the user's own modes (`i`, `w`, `s`,
 `r` set only, `o`/`O` given up only); anything else gets 421 for now, CAP included. Clients get
 no host name lookup: the host is the address they connect from.
+
+### Channels and messages
+
+Channels are `#` (network-wide) and `&` (this server's); `+` and `!` channels come with RFC 2811
+in full. The first user to JOIN a channel is its operator, and the channel goes when its last
+member leaves. The server handles JOIN (keys, and `JOIN 0` to leave every channel), PART, TOPIC,
+NAMES, LIST, INVITE, KICK, PRIVMSG and NOTICE, and MODE for channels:
+
+| Mode | Meaning |
+|---|---|
+| `o` / `v` | channel operator / voice, given to a member by nickname |
+| `b` | ban mask (`nick` means `nick!*@*`); `MODE #chan b` lists them |
+| `k` / `l` | the key JOIN must give / the most members |
+| `i` | invite only: an operator's INVITE lets a user in |
+| `m` | moderated: only operators and voiced members speak |
+| `n` | no messages from users not on the channel |
+| `t` | only operators change the topic |
+| `p` / `s` | private / secret |
+
+A MODE makes at most three changes that take a parameter. To someone not on it, a secret channel
+acts as if it doesn't exist; a private one is listed by LIST as `Prv` with no topic and left out
+of a NAMES with no parameter. Invisible users (`+i`) show in NAMES only to people on the same
+channel. A user's NICK and QUIT go to everyone on their channels, once each; a connection that
+ends without QUIT sends QUIT with the reason (a ping timeout, for example).
 
 ## Building
 

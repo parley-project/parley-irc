@@ -24,7 +24,10 @@
  */
 package us.bringardner.parley.irc.server;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -46,6 +49,8 @@ public class IrcUser {
 	private volatile String nickname;
 	// Sorted, so "+iw" always reads the same way
 	private final Set<Character> modes = Collections.synchronizedSet(new TreeSet<Character>());
+	// The channels the user is on, in the order joined
+	private final Set<IrcChannel> channels = Collections.synchronizedSet(new LinkedHashSet<IrcChannel>());
 
 	IrcUser(ClientSession session, String nickname, String user, String host, String realName) {
 		this.session = session;
@@ -112,6 +117,25 @@ public class IrcUser {
 			}
 		}
 		return ret.toString();
+	}
+
+	/** @return the channels the user is on (a copy, in the order joined) */
+	public List<IrcChannel> getChannels() {
+		synchronized (channels) {
+			return new ArrayList<IrcChannel>(channels);
+		}
+	}
+
+	public int getChannelCount() {
+		return channels.size();
+	}
+
+	void joined(IrcChannel channel) {
+		channels.add(channel);
+	}
+
+	void left(IrcChannel channel) {
+		channels.remove(channel);
 	}
 
 	/** @return true for an operator (user mode o or O) */

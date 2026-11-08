@@ -73,6 +73,7 @@ import us.bringardner.parley.irc.protocol.Prefix;
  *     and 10s)</li>
  * <li>{@code maxSendQueue}: bytes waiting to be sent to a client before it is dropped
  *     (default 1048576)</li>
+ * <li>{@code maxChannels}: the most channels a user may be on at once (default 10)</li>
  * </ul>
  * Durations carry their unit (250ms, 30s, 5m, 1h); a bare number is milliseconds. The settings
  * are read once, when the node is made. A name the node doesn't know is logged as a warning, naming
@@ -96,6 +97,7 @@ public class IrcNode extends BaseObject {
 	public static final String PROPERTY_FLOOD_PENALTY = "floodPenalty";
 	public static final String PROPERTY_FLOOD_LIMIT = "floodLimit";
 	public static final String PROPERTY_MAX_SEND_QUEUE = "maxSendQueue";
+	public static final String PROPERTY_MAX_CHANNELS = "maxChannels";
 
 	/** The node's settings file, in its folder (decisions D39, D42) */
 	public static final String SETTINGS_FILE = "node.properties";
@@ -104,7 +106,7 @@ public class IrcNode extends BaseObject {
 	public static final Set<String> KNOWN_SETTINGS = Collections.unmodifiableSet(new LinkedHashSet<String>(Arrays.asList(
 			PROPERTY_NAME, PROPERTY_DESCRIPTION, PROPERTY_NETWORK, PROPERTY_MOTD, PROPERTY_NICK_LENGTH,
 			PROPERTY_REGISTRATION_TIMEOUT, PROPERTY_PING_INTERVAL, PROPERTY_PING_TIMEOUT,
-			PROPERTY_FLOOD_PENALTY, PROPERTY_FLOOD_LIMIT, PROPERTY_MAX_SEND_QUEUE)));
+			PROPERTY_FLOOD_PENALTY, PROPERTY_FLOOD_LIMIT, PROPERTY_MAX_SEND_QUEUE, PROPERTY_MAX_CHANNELS)));
 
 	public static final long DEFAULT_REGISTRATION_TIMEOUT = 60_000;
 	public static final long DEFAULT_PING_INTERVAL = 120_000;
@@ -114,6 +116,8 @@ public class IrcNode extends BaseObject {
 	/** RFC 2812 section 5.8: a client's timer may run up to 10 seconds ahead */
 	public static final long DEFAULT_FLOOD_LIMIT = 10_000;
 	public static final int DEFAULT_MAX_SEND_QUEUE = 1024*1024;
+	/** The most channels a user may be on at once (sent as CHANLIMIT) */
+	public static final int DEFAULT_MAX_CHANNELS = 10;
 	/** The user modes this server knows (RFC 2812 section 3.1.5) */
 	public static final String USER_MODES = "aiwroOs";
 	/** The channel modes of stage 1 (RFC 2811 section 4) */
@@ -139,11 +143,13 @@ public class IrcNode extends BaseObject {
 	private final long floodPenalty;
 	private final long floodLimit;
 	private final int maxSendQueue;
+	private final int maxChannels;
 
 	// Nicknames in use, registered or not, by their case-folded form
 	private final ConcurrentHashMap<String, ClientSession> nicks = new ConcurrentHashMap<String, ClientSession>();
 	private final ConcurrentHashMap<String, IrcUser> users = new ConcurrentHashMap<String, IrcUser>();
 	private final AtomicInteger unregistered = new AtomicInteger();
+	private final ConcurrentHashMap<String, IrcChannel> channels = new ConcurrentHashMap<String, IrcChannel>();
 
 	/**
 	 * A node from its settings (see the class comment).
@@ -189,6 +195,7 @@ public class IrcNode extends BaseObject {
 		floodPenalty = Math.max(0, getDuration(PROPERTY_FLOOD_PENALTY, DEFAULT_FLOOD_PENALTY));
 		floodLimit = Math.max(0, getDuration(PROPERTY_FLOOD_LIMIT, DEFAULT_FLOOD_LIMIT));
 		maxSendQueue = getIntProperty(PROPERTY_MAX_SEND_QUEUE, DEFAULT_MAX_SEND_QUEUE);
+		maxChannels = Math.max(1, getIntProperty(PROPERTY_MAX_CHANNELS, DEFAULT_MAX_CHANNELS));
 		motd = readMotd();
 	}
 
@@ -362,6 +369,10 @@ public class IrcNode extends BaseObject {
 		return maxSendQueue;
 	}
 
+	public int getMaxChannels() {
+		return maxChannels;
+	}
+
 	// ------------------------------------------------------------------ MOTD
 
 	/** @return the message of the day's lines (at most 80 characters each), or null if there is none */
@@ -483,9 +494,36 @@ public class IrcNode extends BaseObject {
 		unregistered.decrementAndGet();
 	}
 
-	/** @return the channels (none until step b) */
+	// ------------------------------------------------------------------ channels
+
+	/** @return the number of channels */
 	public int getChannelCount() {
-		return 0;
+		return channels.size();
+	}
+
+	/** @return the channel with this name (any case), or null */
+	public IrcChannel findChannel(String name) {
+		return name == null ? null : channels.get(caseMapping.toLowerCase(name));
+	}
+
+	/** @return the channels (a copy) */
+	public List<IrcChannel> getChannels() {
+		return new ArrayList<IrcChannel>(channels.values());
+	}
+
+	/**
+	 * The channel to join, made if it doesn't exist. The caller locks it and checks
+	 * {@link IrcChannel#isGone()}: a channel whose last member left in between is gone, and the
+	 * caller asks again.
+	 */
+	IrcChannel channelToJoin(String name) {
+		return channels.computeIfAbsent(caseMapping.toLowerCase(name), k -> new IrcChannel(this, name));
+	}
+
+	/** Called with the channel's lock held, when its last member has left */
+	void channelEmptied(IrcChannel channel) {
+		channel.markGone();
+		channels.remove(caseMapping.toLowerCase(channel.getName()), channel);
 	}
 
 	@Override
