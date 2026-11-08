@@ -31,6 +31,7 @@ import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.Locale;
 
+import us.bringardner.parley.files.credentials.CredentialRef;
 import us.bringardner.parley.files.credentials.CredentialRequest;
 import us.bringardner.parley.files.credentials.Credentials;
 import us.bringardner.parley.irc.protocol.IrcMessage;
@@ -44,10 +45,12 @@ import us.bringardner.parley.net.nio.NioServer;
  * Settings, under the listener's prefix ({@value #PROPERTY_PREFIX} by default):
  * <ul>
  * <li>{@code port}: default {@value #DEFAULT_PORT} (decision D18)</li>
- * <li>{@code node}: the node's settings file, a FileSource path or {@code filesource:} URL;
- *     required unless {@link #setNode(IrcNode)} gives the node (decision D19)</li>
- * <li>{@code password}: the connection password PASS must give; a reference such as
- *     {@code @keychain:...} is allowed. None: PASS is accepted and ignored (decision D21)</li>
+ * <li>{@code node}: the node's folder, holding its {@value IrcNode#SETTINGS_FILE}; required
+ *     unless {@link #setNode(IrcNode)} gives the node (decisions D19, D39)</li>
+ * <li>{@code password}: where the connection password PASS must give is kept, a reference
+ *     ({@code @keychain:...}, {@code @file:...}, {@code @env:...}), never the password itself: a
+ *     plain value stops the listener from starting. None: PASS is accepted and ignored
+ *     (decisions D21, D36)</li>
  * <li>{@code numeric005}: {@code isupport} (the default) sends RPL_ISUPPORT after registering;
  *     {@code bounce} keeps 005 for RFC 2812's RPL_BOUNCE (decisions D4, D11)</li>
  * </ul>
@@ -130,7 +133,7 @@ public class IrcServer extends NioServer {
 		if( n == null ) {
 			String location = getProperty(propertyName(PROPERTY_NODE));
 			if( location == null || location.trim().isEmpty() ) {
-				throw new IOException(propertyName(PROPERTY_NODE)+" isn't set: it names the IRC node's settings file");
+				throw new IOException(propertyName(PROPERTY_NODE)+" isn't set: it names the IRC node's folder");
 			}
 			n = IrcNode.open(location.trim());
 			node = n;
@@ -151,6 +154,9 @@ public class IrcServer extends NioServer {
 		String value = getProperty(propertyName(PROPERTY_PASSWORD));
 		if( value == null || value.isEmpty() ) {
 			return null;
+		}
+		if( !CredentialRef.isReference(value) ) {
+			throw new IOException(propertyName(PROPERTY_PASSWORD)+" must name where the password is kept (@keychain:..., @file:..., @env:...), not hold it");
 		}
 		char[] secret = Credentials.secret(value, new CredentialRequest(CREDENTIALS_ID, PROPERTY_PASSWORD, null, null));
 		try {

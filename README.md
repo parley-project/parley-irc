@@ -53,14 +53,16 @@ An `IrcNode` is what RFC 2812 calls a server: its name, its users and (soon) its
 `IrcServer` is one listener on parley-net's `NioServer`, serving a node; a plain and a TLS
 listener in one JVM share the node, so a nickname taken on one is taken on the other.
 
-The node's settings are in a properties file of its own, which each listener names:
+A node lives in a folder of its own, which each listener names. Its settings are in
+`node.properties` inside that folder; the other files it keeps (the MOTD now) are reached from
+there. Paths are FileSources from the default factory, used as local files would be.
 
 ```properties
-# node.properties (names have no prefix here)
+# node.properties, in the node's folder (names have no prefix here)
 name=irc.example.net
 description=Parley IRC
 network=ParleyNet
-# a FileSource path or filesource: URL; a relative path is next to this file
+# a relative path is in the node's folder; an absolute one is used as it is
 motd=motd.txt
 nickLength=9
 registrationTimeout=60s
@@ -73,11 +75,16 @@ floodLimit=10s
 maxSendQueue=1048576
 ```
 
+A name the node doesn't know (a misspelling such as `nickLenght`) is logged as a warning naming
+the file, and ignored; `IrcNode.getUnknownSettings()` lists them.
+
 ```properties
 # the listener's settings
 parley.irc.port=6667
-parley.irc.node=/etc/parley/irc/node.properties
-# optional: the password PASS must give, or where it is kept
+# the node's folder, holding node.properties
+parley.irc.node=/etc/parley/irc
+# optional: where the password PASS must give is kept (@keychain:, @file:, @env:);
+# never the password itself: a plain value stops the listener from starting
 parley.irc.password=@keychain:parley/irc
 # isupport (default) sends RPL_ISUPPORT; bounce keeps 005 for RFC 2812's RPL_BOUNCE
 parley.irc.numeric005=isupport

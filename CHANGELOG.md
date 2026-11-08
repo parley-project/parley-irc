@@ -12,9 +12,12 @@
   section 2.5, on parley-core's `Wildcards`) and `IrcSyntax` (nicknames, channel names, users,
   keys).
 - **The server, stage 1 step (a)** (`us.bringardner.parley.irc.server`): `IrcNode` (the RFC's
-  server: name, users; its own settings file, shared by the listeners that name it), `IrcServer`
+  server: name, users; a folder of its own holding `node.properties`, shared by the listeners
+  that name it; names it doesn't know are logged as warnings and listed by
+  `getUnknownSettings()`), `IrcServer`
   (a listener on parley-net's `NioServer`, default port 6667), `ClientSession` and `IrcUser`.
-  Registration with PASS (optional listener password, `@keychain:` references allowed), NICK and
+  Registration with PASS (optional listener password, given only as a reference: `@keychain:`,
+  `@file:` or `@env:`; a plain value stops the listener from starting), NICK and
   USER (RFC 2812's mode bitmask and RFC 1459's form), QUIT, PING and PONG; the welcome 001-004,
   005 as `RPL_ISUPPORT` or kept for `RPL_BOUNCE` (`numeric005`), LUSERS and MOTD; user modes
   (`aiwroOs`); 421 for unknown commands and CAP; flood control (RFC 2812 section 5.8);

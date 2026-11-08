@@ -186,9 +186,16 @@ class RegistrationTest extends ServerTestBase {
 	}
 
 	@Test
-	void passwordRequired() throws IOException {
+	void passwordRequired(@TempDir Path dir) throws IOException {
+		// D36: the setting names where the password is kept; @file: needs a file only its owner can read
+		FileSource secret = folder(dir).getChild("irc.secret");
+		write(secret, "s3cret\n");
+		secret.setReadable(false, false);
+		secret.setWritable(false, false);
+		secret.setReadable(true, true);
+		secret.setWritable(true, true);
 		Properties listener = new Properties();
-		listener.setProperty("parley.irc.password", "s3cret");
+		listener.setProperty("parley.irc.password", "@file:"+secret.getAbsolutePath());
 		IrcServer s = start(new IrcNode(nodeSettings()), listener);
 		assertTrue(s.isPasswordRequired());
 
@@ -211,6 +218,15 @@ class RegistrationTest extends ServerTestBase {
 		good.send("NICK tony");
 		good.send("USER tb 0 * :Tony");
 		assertEquals("tony", good.readCommand("001").getParam(0));
+	}
+
+	@Test
+	void plainPasswordStopsTheStart() {
+		Properties listener = new Properties();
+		listener.setProperty("parley.irc.password", "s3cret");
+		IOException e = assertThrows(IOException.class, () -> start(new IrcNode(nodeSettings()), listener));
+		assertTrue(e.getMessage().contains("parley.irc.password"), e.getMessage());
+		assertFalse(e.getMessage().contains("s3cret"), e.getMessage());
 	}
 
 	@Test
@@ -258,16 +274,17 @@ class RegistrationTest extends ServerTestBase {
 	void nodeFileMotdAndSharing(@TempDir Path dir) throws IOException {
 		String longLine = "0123456789".repeat(9);
 		// JUnit gives the folder as a Path; everything in it goes through FileSource
-		FileSource folder = FileSourceFactory.getDefaultFactory().createFileSource(dir.toString());
+		FileSource folder = folder(dir);
 		write(folder.getChild("motd.txt"), "Welcome to Parley\n"+longLine+"\n");
-		FileSource nodeFile = folder.getChild("node.properties");
-		write(nodeFile, "name=irc.example.net\nmotd=motd.txt\nnetwork=ParleyNet\n");
-		String location = nodeFile.getAbsolutePath();
+		write(folder.getChild(IrcNode.SETTINGS_FILE), "name=irc.example.net\nmotd=motd.txt\nnetwork=ParleyNet\n");
+		// D39: the listener names the node's folder
 		Properties listener = new Properties();
-		listener.setProperty("parley.irc.node", location);
+		listener.setProperty("parley.irc.node", folder.getAbsolutePath());
 		IrcServer a = start(null, listener);
 		IrcServer b = start(null, listener);
 		assertNotNull(a.getNode());
+		assertEquals(folder.getChild(IrcNode.SETTINGS_FILE).getAbsolutePath(), a.getNode().getLocation());
+		assertTrue(a.getNode().getUnknownSettings().isEmpty());
 		// one node for the listeners that name the same file
 		assertTrue(a.getNode() == b.getNode());
 
@@ -285,6 +302,51 @@ class RegistrationTest extends ServerTestBase {
 		TestClient other = connect(b);
 		other.send("NICK Tony");
 		other.readCommand("433");
+	}
+
+	@Test
+	void absoluteMotdIsUsedAsItIs(@TempDir Path dir) throws IOException {
+		FileSource root = folder(dir);
+		FileSource node = root.getChild("node");
+		assertTrue(node.mkdirs());
+		FileSource motd = root.getChild("shared-motd.txt");
+		write(motd, "Shared message\n");
+		write(node.getChild(IrcNode.SETTINGS_FILE), "name=irc.example.net\nmotd="+motd.getAbsolutePath().replace("\\", "\\\\")+"\n");
+		IrcNode n = IrcNode.open(node.getAbsolutePath());
+		assertEquals(List.of("Shared message"), n.getMotd());
+		assertTrue(n == IrcNode.open(node.getAbsolutePath()));
+	}
+
+	@Test
+	void missingNodeFolderOrFile(@TempDir Path dir) throws IOException {
+		FileSource root = folder(dir);
+		assertThrows(IOException.class, () -> IrcNode.open(root.getChild("none").getAbsolutePath()));
+		// a folder without node.properties
+		IOException e = assertThrows(IOException.class, () -> IrcNode.open(root.getAbsolutePath()));
+		assertTrue(e.getMessage().contains(IrcNode.SETTINGS_FILE), e.getMessage());
+	}
+
+	@Test
+	void unknownSettingsAreReported(@TempDir Path dir) throws IOException {
+		// D37: a misspelled name is reported (and logged as a warning naming the file), not silently ignored
+		FileSource node = folder(dir);
+		write(node.getChild(IrcNode.SETTINGS_FILE), "name=irc.example.net\nnickLenght=16\npingInterval=30s\nmotdFile=motd.txt\n");
+		IrcNode n = IrcNode.open(node.getAbsolutePath());
+		assertEquals(List.of("motdFile", "nickLenght"), n.getUnknownSettings());
+		assertEquals(9, n.getNickLength());
+		assertEquals(30_000, n.getPingInterval());
+
+		Properties p = nodeSettings();
+		assertTrue(new IrcNode(p).getUnknownSettings().isEmpty());
+		for (String name : IrcNode.KNOWN_SETTINGS) {
+			p.setProperty(name, p.getProperty(name, name.equals("name") ? "irc.example.net" : "1"));
+		}
+		assertTrue(new IrcNode(p).getUnknownSettings().isEmpty());
+	}
+
+	// JUnit gives its folder as a Path; everything in it goes through FileSource (D31)
+	private static FileSource folder(Path dir) throws IOException {
+		return FileSourceFactory.getDefaultFactory().createFileSource(dir.toString());
 	}
 
 	private static void write(FileSource file, String text) throws IOException {
