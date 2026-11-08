@@ -91,6 +91,13 @@
 			<artifactId>parley-iam</artifactId>
 			<version>${project.version}</version>
 		</dependency>
+		<!-- Used directly: the node's settings file and MOTD (FileSource), the listener password
+		     as a reference such as @keychain:... (Credentials) -->
+		<dependency>
+			<groupId>us.bringardner.parley</groupId>
+			<artifactId>parley-files</artifactId>
+			<version>${project.version}</version>
+		</dependency>
 		<!-- Used directly: reading messages as UTF-8 or Latin-1 (IoUtils) -->
 		<dependency>
 			<groupId>us.bringardner.parley</groupId>
