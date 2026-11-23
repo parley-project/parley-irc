@@ -174,7 +174,7 @@ public class IrcNode extends BaseObject {
 			settings = new Properties();
 		}
 		setConfiguration(settings);
-		setSupportPrefixProperty(false);
+		setPropertyPrefix("");
 		this.folder = folder;
 		this.location = folder == null ? null : folder.getChild(SETTINGS_FILE).getAbsolutePath();
 		unknownSettings = findUnknown(settings);
