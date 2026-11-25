@@ -61,15 +61,11 @@ abstract class ServerTestBase {
 	}
 
 	protected IrcServer start(IrcNode node, Properties listener) throws IOException {
-		IrcServer s;
-		try {
-			s = us.bringardner.parley.core.BaseObject.makeWith(listener, () -> new IrcServer(IrcServer.PROPERTY_PREFIX, 0));
-		} catch (IOException | RuntimeException e) {
-			throw e;
-		} catch (Exception e) {
-			throw new IOException(e);
+		for (String n : listener.stringPropertyNames()) {
+			System.setProperty(n, listener.getProperty(n));
+			setHere.add(n);
 		}
-		s.setConfiguration(listener);
+		IrcServer s = new IrcServer(IrcServer.PROPERTY_PREFIX, 0);
 		if( node != null ) {
 			s.setNode(node);
 		}
@@ -101,7 +97,14 @@ abstract class ServerTestBase {
 		for (IrcServer s : servers) {
 			s.stop();
 		}
+		for (String n : setHere) {
+			System.clearProperty(n);
+		}
+		setHere.clear();
 	}
+
+	/** The system properties a listener's settings were put in */
+	private final java.util.Set<String> setHere = new java.util.HashSet<>();
 
 	static class TestClient {
 		final Socket socket;

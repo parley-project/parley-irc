@@ -151,6 +151,9 @@ public class IrcNode extends BaseObject {
 	private final AtomicInteger unregistered = new AtomicInteger();
 	private final ConcurrentHashMap<String, IrcChannel> channels = new ConcurrentHashMap<String, IrcChannel>();
 
+	/** The settings this node was made with: they are read before the system properties and the properties files */
+	private final Properties nodeSettings;
+
 	/**
 	 * A node from its settings (see the class comment).
 	 *
@@ -173,7 +176,7 @@ public class IrcNode extends BaseObject {
 		if( settings == null ) {
 			settings = new Properties();
 		}
-		setConfiguration(settings);
+		this.nodeSettings = settings;
 		setPropertyPrefix("");
 		this.folder = folder;
 		this.location = folder == null ? null : folder.getChild(SETTINGS_FILE).getAbsolutePath();
@@ -529,5 +532,12 @@ public class IrcNode extends BaseObject {
 	@Override
 	public String toString() {
 		return "IrcNode "+name+where();
+	}
+
+	/** A node's own settings first, then what every object reads (system properties, properties files) */
+	@Override
+	public String getProperty(String propertyName, String defaultValue) {
+		String ret = nodeSettings == null ? null : nodeSettings.getProperty(propertyName);
+		return ret != null ? ret : super.getProperty(propertyName, defaultValue);
 	}
 }
